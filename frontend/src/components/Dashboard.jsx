@@ -3,30 +3,33 @@
  * -------------
  * Main page — live overview of all cold-chain shipments.
  *
- * Layout:
- *   Header       → logo, LIVE indicator, theme toggle
- *   StatsBar     → 4 KPI cards (shipments, alerts, breaches, anomaly rate)
- *   Left column  → ShipmentCards (click to select, "Details" to open detail page)
- *   Right column → SensorChart for selected shipment + AlertFeed
- *
- * Data flow:
- *   On mount  → fetch all shipments + alerts + per-shipment history
- *   WebSocket → SENSOR_READING and ALERT messages stream in real-time
+ * Features:
+ *   - Live WebSocket sensor data (5-second intervals)
+ *   - StatsBar with 4 KPI cards
+ *   - ShipmentCard list with health scores + "View full details" link
+ *   - Right panel: tabs for "Live Chart" and "Route Map"
+ *   - Live alert feed
+ *   - DemoStoryMode guided tour (auto-launches for first-time visitors)
+ *   - ThemeToggle (dark/light mode)
+ *   - "? Tour" button to re-trigger the demo at any time
  */
 
 import React, { useState, useReducer, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { Wifi, WifiOff, RefreshCw } from "lucide-react";
-import { useWebSocket } from "../hooks/useWebSocket";
-import ThemeToggle  from "./ThemeToggle";
-import StatsBar     from "./StatsBar";
-import ShipmentCard from "./ShipmentCard";
-import SensorChart  from "./SensorChart";
-import AlertFeed    from "./AlertFeed";
+import { Wifi, WifiOff, RefreshCw, MapPin, BarChart2, HelpCircle } from "lucide-react";
+import { useWebSocket }   from "../hooks/useWebSocket";
+import ThemeToggle        from "./ThemeToggle";
+import StatsBar           from "./StatsBar";
+import ShipmentCard       from "./ShipmentCard";
+import SensorChart        from "./SensorChart";
+import AlertFeed          from "./AlertFeed";
+import RouteMap           from "./RouteMap";
+import DemoStoryMode      from "./DemoStoryMode";
+import { computeHealthScore } from "./HealthScore";
 
 const API          = import.meta.env.VITE_API_URL || "/api";
-const MAX_READINGS = 60; // keep last N readings per shipment in memory
+const MAX_READINGS = 60;
 
 // ── Readings reducer ──────────────────────────────────────────────────────────
 function readingsReducer(state, action) {
@@ -35,9 +38,7 @@ function readingsReducer(state, action) {
     const prev = state[id] || [];
     return { ...state, [id]: [...prev, action.payload].slice(-MAX_READINGS) };
   }
-  if (action.type === "INIT") {
-    return { ...state, ...action.payload };
-  }
+  if (action.type === "INIT") return { ...state, ...action.payload };
   return state;
 }
 
@@ -52,8 +53,14 @@ export default function Dashboard() {
   const [forecasts, setForecasts] = useState({});
   const [selected,  setSelected]  = useState(null);
   const [loading,   setLoading]   = useState(true);
+  // "chart" | "map" — tab selector in right panel
+  const [rightTab,  setRightTab]  = useState("chart");
+  // Demo story mode — auto-open for first-time visitors
+  const [tourOpen, setTourOpen]   = useState(() => {
+    return !localStorage.getItem("supplylens-tour-done");
+  });
 
-  // Handle incoming WebSocket messages
+  // ── WebSocket handler ──────────────────────────────────────────────────────
   const onMessage = useCallback((msg) => {
     if (msg.type === "SENSOR_READING") {
       dispatch({ type: "ADD", payload: msg.payload });
@@ -67,7 +74,7 @@ export default function Dashboard() {
 
   const { connected } = useWebSocket(onMessage);
 
-  // Fetch initial data on mount
+  // ── Initial fetch ──────────────────────────────────────────────────────────
   useEffect(() => {
     Promise.all([
       axios.get(`${API}/shipments`),
@@ -78,12 +85,9 @@ export default function Dashboard() {
         setShipments(configs);
         setSelected(configs[0]?.id || null);
         setAlerts(alertsRes.data.alerts || []);
-
         const latestMap = {};
         configs.forEach((s) => { if (s.latest) latestMap[s.id] = s.latest; });
         setLatest(latestMap);
-
-        // Fetch reading history for each shipment in parallel
         const history = await Promise.all(
           configs.map((s) =>
             axios.get(`${API}/sensors/${s.id}?limit=60`)
@@ -100,7 +104,7 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, []);
 
-  // KPI stats for StatsBar
+  // ── Derived ────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
     const all = Object.values(latest);
     return {
@@ -113,20 +117,27 @@ export default function Dashboard() {
     };
   }, [shipments, latest, alerts]);
 
-  const enriched   = shipments.map((s) => ({ ...s, latest: latest[s.id] || s.latest }));
+  const enriched   = shipments.map((s) => ({
+    ...s,
+    latest:      latest[s.id] || s.latest,
+    healthScore: computeHealthScore(readings[s.id] || [], s.threshold),
+  }));
   const activeShip = enriched.find((s) => s.id === selected);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-900 text-slate-900 dark:text-white">
 
-      {/* Header */}
+      {/* ── Demo Story Mode overlay ── */}
+      <DemoStoryMode isOpen={tourOpen} onClose={() => setTourOpen(false)} />
+
+      {/* ── Header ── */}
       <header className="bg-white dark:bg-slate-950 border-b border-gray-200 dark:border-slate-800 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-2xl">🌡️</span>
             <div>
               <h1 className="text-slate-900 dark:text-white font-bold text-lg leading-tight">SupplyLens</h1>
-              <p className="text-slate-500 dark:text-slate-400 text-xs">Cold Chain Anomaly Detection</p>
+              <p className="text-slate-500 dark:text-slate-400 text-xs">Cold Chain Anomaly Detection · India</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -143,15 +154,26 @@ export default function Dashboard() {
                 <WifiOff size={14} className="text-red-500 dark:text-red-400" />
               </div>
             )}
-            <span className="text-slate-400 dark:text-slate-600 text-xs">
+            <span className="text-slate-400 dark:text-slate-600 text-xs hidden sm:inline">
               {new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
             </span>
+            {/* Re-trigger tour button */}
+            <button
+              onClick={() => setTourOpen(true)}
+              title="Take a guided tour of SupplyLens"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30
+                hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+            >
+              <HelpCircle size={13} />
+              Tour
+            </button>
             <ThemeToggle />
           </div>
         </div>
       </header>
 
-      {/* Main content */}
+      {/* ── Main content ── */}
       <main className="max-w-7xl mx-auto px-6 py-6">
         {loading ? (
           <div className="flex items-center justify-center h-64 text-slate-400 gap-3">
@@ -163,7 +185,7 @@ export default function Dashboard() {
             <StatsBar stats={stats} />
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-              {/* Left — shipment list */}
+              {/* Left — shipment cards */}
               <div className="lg:col-span-1 space-y-3">
                 <h2 className="text-slate-500 dark:text-slate-300 text-sm font-semibold uppercase tracking-wide mb-2">
                   Active Shipments
@@ -179,38 +201,77 @@ export default function Dashboard() {
                 ))}
               </div>
 
-              {/* Right — chart + alerts */}
+              {/* Right — tabbed panel */}
               <div className="lg:col-span-2 space-y-4">
-                <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-5">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h2 className="text-slate-900 dark:text-white font-semibold">
-                        {activeShip ? `${activeShip.id} — ${activeShip.type}` : "Select a shipment"}
-                      </h2>
-                      {activeShip && (
-                        <p className="text-slate-500 dark:text-slate-400 text-xs">
-                          {activeShip.origin} → {activeShip.destination} · Max {activeShip.threshold}°C
-                        </p>
-                      )}
-                    </div>
-                    {activeShip?.latest && (() => {
-                      const s   = activeShip.latest.status;
-                      const cls = s === "BREACH"
-                        ? "bg-red-100 text-red-700 border-red-300 dark:bg-red-900 dark:text-red-300 dark:border-red-700"
-                        : s === "WARNING"
-                        ? "bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900 dark:text-yellow-300 dark:border-yellow-700"
-                        : "bg-green-100 text-green-700 border-green-300 dark:bg-green-900 dark:text-green-300 dark:border-green-700";
-                      return (
-                        <span className={`text-xs px-3 py-1 rounded-full border font-semibold ${cls}`}>{s}</span>
-                      );
-                    })()}
-                  </div>
-                  <SensorChart
-                    readings={readings[selected] || []}
-                    forecast={forecasts[selected] || []}
-                    threshold={activeShip?.threshold ?? 8}
-                  />
+
+                {/* Tab switcher */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setRightTab("chart")}
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors
+                      ${rightTab === "chart"
+                        ? "bg-blue-600 text-white"
+                        : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700"}`}
+                  >
+                    <BarChart2 size={14} />
+                    Live Chart
+                  </button>
+                  <button
+                    onClick={() => setRightTab("map")}
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors
+                      ${rightTab === "map"
+                        ? "bg-blue-600 text-white"
+                        : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700"}`}
+                  >
+                    <MapPin size={14} />
+                    Route Map
+                  </button>
                 </div>
+
+                {/* Chart tab */}
+                {rightTab === "chart" && (
+                  <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-5">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h2 className="text-slate-900 dark:text-white font-semibold">
+                          {activeShip ? `${activeShip.id} — ${activeShip.type}` : "Select a shipment"}
+                        </h2>
+                        {activeShip && (
+                          <p className="text-slate-500 dark:text-slate-400 text-xs">
+                            {activeShip.origin} → {activeShip.destination} · Max {activeShip.threshold}°C
+                          </p>
+                        )}
+                      </div>
+                      {activeShip?.latest && (() => {
+                        const s   = activeShip.latest.status;
+                        const cls = s === "BREACH"
+                          ? "bg-red-100 text-red-700 border-red-300 dark:bg-red-900 dark:text-red-300 dark:border-red-700"
+                          : s === "WARNING"
+                          ? "bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900 dark:text-yellow-300 dark:border-yellow-700"
+                          : "bg-green-100 text-green-700 border-green-300 dark:bg-green-900 dark:text-green-300 dark:border-green-700";
+                        return (
+                          <span className={`text-xs px-3 py-1 rounded-full border font-semibold ${cls}`}>{s}</span>
+                        );
+                      })()}
+                    </div>
+                    <SensorChart
+                      readings={readings[selected] || []}
+                      forecast={forecasts[selected] || []}
+                      threshold={activeShip?.threshold ?? 8}
+                    />
+                  </div>
+                )}
+
+                {/* Route map tab */}
+                {rightTab === "map" && (
+                  <RouteMap
+                    shipments={enriched}
+                    selected={selected}
+                    onSelect={setSelected}
+                  />
+                )}
+
+                {/* Alert feed — always shown */}
                 <AlertFeed alerts={alerts} />
               </div>
             </div>
