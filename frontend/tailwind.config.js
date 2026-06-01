@@ -1,5 +1,8 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  // 'class' strategy: dark mode is enabled by adding the 'dark' class to <html>
+  // ThemeContext.jsx manages this class — default is dark
+  darkMode: "class",
   content: ["./index.html", "./src/**/*.{js,jsx}"],
   theme: {
     extend: {

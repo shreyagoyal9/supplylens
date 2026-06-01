@@ -2,14 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Smooth scrollbar for the alert feed */
-.scrollbar-thin::-webkit-scrollbar { width: 4px; }
-.scrollbar-thin::-webkit-scrollbar-track { background: #1e293b; }
-.scrollbar-thin::-webkit-scrollbar-thumb { background: #475569; border-radius: 2px; }
+/* ── Scrollbar — dark mode ──────────────────────────────────────────────── */
+.dark .scrollbar-thin::-webkit-scrollbar         { width: 4px; }
+.dark .scrollbar-thin::-webkit-scrollbar-track   { background: #1e293b; }
+.dark .scrollbar-thin::-webkit-scrollbar-thumb   { background: #475569; border-radius: 2px; }
 
-/* Pulse animation for live indicator */
+/* ── Scrollbar — light mode ─────────────────────────────────────────────── */
+.scrollbar-thin::-webkit-scrollbar         { width: 4px; }
+.scrollbar-thin::-webkit-scrollbar-track   { background: #f1f5f9; }
+.scrollbar-thin::-webkit-scrollbar-thumb   { background: #cbd5e1; border-radius: 2px; }
+
+/* ── Live indicator pulse animation ────────────────────────────────────── */
 @keyframes live-pulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.4; }
 }
 .live-dot { animation: live-pulse 1.5s ease-in-out infinite; }
+
+/* ── Smooth theme transition ────────────────────────────────────────────── */
+*, *::before, *::after {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
+}
