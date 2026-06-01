@@ -18,6 +18,32 @@
 
 ---
 
+## 🧪 Demo vs Real Product — Read This First
+
+**This project is a demo/prototype, not a live commercial product.**
+
+Think of it like a flight simulator — it's not a real plane, but it works exactly the same way as one. Here's what's real and what's simulated:
+
+| What you see | What it actually is |
+|---|---|
+| 5 shipments (SH-001 to SH-005) | Hardcoded fake shipments, not real trucks |
+| Live temperature readings every 5s | A JavaScript simulator generating realistic fake data |
+| Temperature spikes and breaches | Randomly injected faults — same patterns as real cold chain failures |
+| ML anomaly detection | 100% real — a trained Isolation Forest model running in Python |
+| LSTM forecast line on chart | 100% real — a neural network predicting future temperature |
+| ₹ cost impact numbers | Calculated from real Indian market cargo values and spoilage rates |
+| Alerts and WebSocket stream | 100% real infrastructure — just fake sensor data flowing through it |
+
+**To turn this into a real product, you would need:**
+1. **Real IoT sensors** — temperature/humidity sensors (e.g. Teltonika, Monnit) placed inside trucks
+2. **MQTT broker** — a messaging protocol that IoT devices use to send data (replace the simulator with this)
+3. **User authentication** — so each logistics company logs in and sees only their own shipments
+4. **Add shipment form** — let users register new shipments instead of hardcoding SH-001 to SH-005
+
+The entire backend architecture (WebSocket streaming, ML microservice, database) is production-ready. Swapping the simulator for real MQTT sensors is the main engineering step to make this commercial.
+
+---
+
 ## 💡 The Problem This Solves
 
 India's cold chain logistics market is worth **₹25,000 crore**. Yet:
@@ -65,20 +91,43 @@ SupplyLens provides ML-powered anomaly detection with **18-minute average early 
 
 ## 🏗️ Architecture
 
-```
-React Dashboard  ←── WebSocket ──→  Node.js API  ←──→  Python ML Service
-(Render Static)                     (Render Web)        (Render Docker)
-                                          │
-                                      Supabase
-                                     PostgreSQL
+```mermaid
+flowchart TD
+    SIM["🚛 IoT Simulator\n──────────────\nFakes sensor data for\n5 shipments every 5s\n\nIn production: replace with\nreal MQTT sensors on trucks"]
+
+    BACKEND["⚙️ Node.js Backend\n──────────────\nExpress REST API\nWebSocket server\nRuns IoT simulator\nCalls ML service"]
+
+    ML["🤖 Python ML Service\n──────────────\nIsolation Forest\ndetects anomalies\n\nLSTM forecasts\nnext 20 min temp"]
+
+    DB["🗄️ Supabase\nPostgreSQL\n──────────────\nStores all readings\nand alerts\n(free database)"]
+
+    FRONTEND["💻 React Dashboard\n──────────────\nLive charts + alerts\nHealth score\nCost impact in ₹\nRoute map of India"]
+
+    USER["👤 User\n(Recruiter / Interviewer\n/ Logistics Manager)"]
+
+    SIM -->|"generates reading\nevery 5 seconds"| BACKEND
+    BACKEND -->|"sends readings\nfor analysis"| ML
+    ML -->|"returns: is_anomaly?\nanomaly_score\nforecast temps"| BACKEND
+    BACKEND -->|"saves to DB"| DB
+    BACKEND -->|"pushes live data\nvia WebSocket"| FRONTEND
+    FRONTEND -->|"REST API calls\nfor history + alerts"| BACKEND
+    USER -->|"opens browser"| FRONTEND
 ```
 
-**Why this impresses interviewers:**
-- **Microservice architecture** — ML as an independent service, deployable separately
-- **Streaming data pipeline** — WebSocket, not polling. Same pattern used at Flipkart/Amazon
-- **Unsupervised ML** — Isolation Forest requires no labelled data
-- **LSTM time-series forecasting** — predicts breach 18+ minutes ahead
-- **Real domain knowledge** — Indian market cargo values, CDSCO pharma guidelines, spoilage rates
+**In plain English — how it works step by step:**
+1. The **simulator** generates a fake temperature reading for each truck every 5 seconds
+2. The **Node.js backend** receives it and immediately sends it to the Python ML service
+3. The **ML service** runs Isolation Forest — checks if this reading is unusual compared to normal patterns
+4. If unusual → LSTM predicts the next 20 minutes of temperature to estimate *when* a breach will happen
+5. An **alert** is generated with a plain English message (e.g. *"SH-001 will breach 8°C in ~18 min"*)
+6. Everything is pushed live to your **browser via WebSocket** — no refresh needed
+7. The **React dashboard** shows charts, health scores, cost impact, and lets you export reports
+
+**Why this architecture impresses interviewers:**
+- **3 separate microservices** — ML, API, and frontend are independently deployable
+- **WebSocket streaming** — same pattern used at Flipkart, Amazon, Zomato for real-time data
+- **Unsupervised ML** — Isolation Forest needs no labelled training data (hard to get in cold chain)
+- **LSTM time-series forecasting** — predicts the future, not just flags the present
 
 ---
 
