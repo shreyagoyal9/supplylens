@@ -1,0 +1,88 @@
+# render.yaml — SupplyLens deployment on Render (100% free tier)
+#
+# Deploy order:
+#   1. supplylens-ml       (Python Flask + Isolation Forest)
+#   2. supplylens-backend  (Node.js API + WebSocket + IoT simulator)
+#   3. supplylens-frontend (React static site)
+#
+# After first deploy, set these env vars in the Render dashboard:
+#   supplylens-backend →
+#     SUPABASE_URL, SUPABASE_ANON_KEY, ML_SERVICE_URL, FRONTEND_URL
+#   supplylens-frontend →
+#     VITE_API_URL, VITE_WS_URL
+
+services:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Service 1 — Python ML (Isolation Forest + LSTM forecasting)
+  # Deployed as Docker image; models are trained at build time.
+  # Free tier: 512 MB RAM — LSTM is skipped automatically (TF not installed).
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: web
+    name: supplylens-ml
+    env: docker
+    dockerfilePath: ./ml-service/Dockerfile
+    dockerContext: ./ml-service
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_ENV
+        value: production
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Service 2 — Node.js Backend (Express API + WebSocket + IoT simulator)
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: web
+    name: supplylens-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node src/index.js
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # ⚠️  Fill these in the Render dashboard after first deploy:
+      - key: SUPABASE_URL
+        sync: false           # prompt user to enter value in dashboard
+      - key: SUPABASE_ANON_KEY
+        sync: false
+
+      # Set this to the supplylens-ml service URL once it's deployed:
+      # e.g. https://supplylens-ml.onrender.com
+      - key: ML_SERVICE_URL
+        sync: false
+
+      # Set this to the supplylens-frontend URL once it's deployed:
+      # e.g. https://supplylens-frontend.onrender.com
+      - key: FRONTEND_URL
+        sync: false
+
+      - key: NODE_ENV
+        value: production
+
+      # How often the IoT simulator emits a reading (ms); keep at 5000 for demo
+      - key: SIMULATOR_INTERVAL_MS
+        value: "5000"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Service 3 — React Frontend (Vite static site)
+  # ─────────────────────────────────────────────────────────────────────────
+  - type: web
+    name: supplylens-frontend
+    env: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    plan: free
+    routes:
+      # SPA fallback — all routes serve index.html
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      # Set these to the supplylens-backend URLs once it's deployed:
+      # e.g. https://supplylens-backend.onrender.com/api
+      - key: VITE_API_URL
+        sync: false
+      # e.g. wss://supplylens-backend.onrender.com
+      - key: VITE_WS_URL
+        sync: false

@@ -1,7 +1,7 @@
 const axios = require("axios");
 
 const http = axios.create({
-  baseURL: process.env.ML_SERVICE_URL || "http://localhost:5000",
+  baseURL: process.env.ML_SERVICE_URL || "http://localhost:5001",
   timeout: 10_000,
 });
 

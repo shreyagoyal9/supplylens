@@ -11,7 +11,7 @@ Real-time IoT sensor dashboard that uses ML to detect temperature/humidity anoma
 
 ```
 React Dashboard  ←─── WebSocket ───→  Node.js API  ←──→  Python ML Service
-(Vercel)                               (Railway)           (Railway)
+(Render)                               (Render)            (Render Docker)
                                            │
                                        Supabase
                                       PostgreSQL
@@ -27,12 +27,12 @@ React Dashboard  ←─── WebSocket ───→  Node.js API  ←──→ 
 
 ## Tech Stack
 
-| Layer       | Tech                          | Free hosting |
-|-------------|-------------------------------|--------------|
-| Frontend    | React 18 + Recharts + Tailwind| Vercel       |
-| Backend     | Node.js + Express + WebSocket | Railway      |
-| ML Service  | Python + Flask + scikit-learn + TensorFlow | Railway |
-| Database    | PostgreSQL                    | Supabase     |
+| Layer       | Tech                                        | Free hosting   |
+|-------------|---------------------------------------------|----------------|
+| Frontend    | React 18 + Recharts + Tailwind              | Render (static)|
+| Backend     | Node.js + Express + WebSocket               | Render (web)   |
+| ML Service  | Python + Flask + scikit-learn (Isolation Forest) | Render (Docker)|
+| Database    | PostgreSQL                                  | Supabase       |
 
 ---
 
@@ -40,7 +40,10 @@ React Dashboard  ←─── WebSocket ───→  Node.js API  ←──→ 
 
 ```
 supplylens/
-├── frontend/               ← React dashboard (Vercel)
+├── render.yaml             ← One-file Render deployment (all 3 services)
+├── supabase_schema.sql     ← Run once in Supabase SQL editor
+│
+├── frontend/               ← React dashboard (Render static site)
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── Dashboard.jsx     Main layout, WebSocket wiring
@@ -51,9 +54,11 @@ supplylens/
 │   │   ├── hooks/
 │   │   │   └── useWebSocket.js   Auto-reconnect WS hook
 │   │   └── App.jsx
-│   └── vercel.json
+│   ├── .env.example
+│   └── vite.config.js
 │
-├── backend/                ← Node.js API (Railway)
+├── backend/                ← Node.js API (Render web service)
+│   ├── .env.example
 │   └── src/
 │       ├── index.js              Entry point, HTTP + WS server
 │       ├── websocket.js          WS broadcast manager
@@ -62,22 +67,20 @@ supplylens/
 │       │   ├── sensors.js        GET/POST /api/sensors
 │       │   └── alerts.js         GET /api/alerts
 │       └── services/
-│           ├── simulator.js      IoT data generator (MQTT simulation)
+│           ├── simulator.js      IoT data generator (5 shipments, 5s interval)
 │           ├── mlClient.js       HTTP client for Python ML service
 │           └── supabase.js       Supabase DB client
 │
-├── ml-service/             ← Python ML API (Railway)
-│   ├── app.py                    Flask API (detect / forecast / analyze)
-│   ├── train.py                  One-time model training script
-│   ├── models/
-│   │   ├── anomaly_detector.py   Isolation Forest pipeline
-│   │   └── forecaster.py        LSTM temperature forecasting
-│   ├── data/
-│   │   └── generator.py         Synthetic cold-chain data generator
-│   ├── Dockerfile
-│   └── requirements.txt
-│
-└── supabase_schema.sql     ← Run once in Supabase SQL editor
+└── ml-service/             ← Python ML API (Render Docker service)
+    ├── app.py                    Flask API (detect / forecast / analyze)
+    ├── train.py                  Runs at Docker build time
+    ├── Dockerfile
+    ├── requirements.txt
+    ├── models/
+    │   ├── anomaly_detector.py   Isolation Forest pipeline
+    │   └── forecaster.py        LSTM temperature forecasting (optional)
+    └── data/
+        └── generator.py         Synthetic cold-chain data generator
 ```
 
 ---
@@ -134,7 +137,7 @@ Open **3 terminal windows**:
 ```bash
 # Terminal 1 — ML service (must start first)
 cd ml-service
-python app.py        # runs on :5000
+python app.py        # runs on :5001
 
 # Terminal 2 — Node backend
 cd backend
@@ -149,52 +152,54 @@ Open **http://localhost:5173** — the dashboard should show live sensor data wi
 
 ---
 
-## Deployment (Free, 100%)
+## Deployment (Free, 100% — Render)
 
-### 1. Deploy ML Service to Railway
+All three services are configured in `render.yaml`. Deploy with one command or via the Render dashboard.
 
-```bash
-# Install Railway CLI
-npm install -g @railway/cli
-railway login
-
-cd ml-service
-railway init           # creates a new project
-railway up             # builds Dockerfile, trains models, deploys
-```
-
-Note the deployed URL, e.g. `https://supplylens-ml.railway.app`
-
-### 2. Deploy Node Backend to Railway
+### Step 1 — Push to GitHub
 
 ```bash
-cd backend
-railway init
-railway variables set \
-  SUPABASE_URL="https://xxx.supabase.co" \
-  SUPABASE_ANON_KEY="your-anon-key" \
-  ML_SERVICE_URL="https://supplylens-ml.railway.app" \
-  FRONTEND_URL="https://supplylens.vercel.app"
-railway up
+git init
+git add .
+git commit -m "Initial commit — SupplyLens"
+git remote add origin https://github.com/YOUR_USERNAME/supplylens.git
+git push -u origin main
 ```
 
-Note the deployed URL, e.g. `https://supplylens-backend.railway.app`
+### Step 2 — Deploy on Render
 
-### 3. Deploy Frontend to Vercel
+Go to [render.com](https://render.com) → **New** → **Blueprint** → connect your GitHub repo.
+Render reads `render.yaml` and creates all 3 services automatically.
 
-```bash
-# Install Vercel CLI
-npm install -g vercel
+> First deploy takes ~5 min for the ML service (Docker build trains the Isolation Forest model inside the image).
 
-cd frontend
-vercel
+### Step 3 — Set environment variables
 
-# Set environment variables when prompted:
-#   VITE_API_URL  = https://supplylens-backend.railway.app/api
-#   VITE_WS_URL   = wss://supplylens-backend.railway.app
-```
+After the first deploy, go to each service in the Render dashboard and add:
 
-Or connect your GitHub repo on [vercel.com](https://vercel.com) for auto-deploys on push.
+**supplylens-backend:**
+| Key | Value |
+|-----|-------|
+| `SUPABASE_URL` | `https://xxx.supabase.co` |
+| `SUPABASE_ANON_KEY` | your anon key |
+| `ML_SERVICE_URL` | `https://supplylens-ml.onrender.com` |
+| `FRONTEND_URL` | `https://supplylens-frontend.onrender.com` |
+
+**supplylens-frontend:**
+| Key | Value |
+|-----|-------|
+| `VITE_API_URL` | `https://supplylens-backend.onrender.com/api` |
+| `VITE_WS_URL` | `wss://supplylens-backend.onrender.com` |
+
+Trigger a redeploy of the frontend after setting env vars (Vite bakes them into the build).
+
+### Step 4 — Set up Supabase (free)
+
+1. Go to [supabase.com](https://supabase.com) → New project
+2. Copy **Project URL** + **anon key** → paste into Render env vars above
+3. Open Supabase SQL Editor → paste `supabase_schema.sql` → Run
+
+> **Supabase is optional.** Without it, the app works 100% with in-memory storage. Data just resets on service restart.
 
 ---
 
@@ -237,7 +242,7 @@ Or connect your GitHub repo on [vercel.com](https://vercel.com) for auto-deploys
 | GET    | /api/alerts/stats             | Alert counts / severity breakdown  |
 | GET    | /health                       | Service health check               |
 
-### Python ML Service (port 5000)
+### Python ML Service (port 5001)
 
 | Method | Endpoint        | Description                            |
 |--------|-----------------|----------------------------------------|
@@ -281,8 +286,11 @@ Or connect your GitHub repo on [vercel.com](https://vercel.com) for auto-deploys
 **Supabase insert errors**
 → Run `supabase_schema.sql` in your Supabase SQL Editor. Check your `.env` credentials.
 
-**Railway build timeout (ML service)**
-→ The Dockerfile trains models during build. First build takes ~5 min. This is normal.
+**Render build timeout (ML service)**
+→ The Dockerfile trains models during build. First build takes ~5 min. This is normal. If it times out, increase the build timeout in Render service settings.
+
+**Frontend shows "OFFLINE" after deploy**
+→ Set `VITE_WS_URL=wss://supplylens-backend.onrender.com` (note: `wss://` not `ws://` for HTTPS). Trigger a redeploy.
 
 ---
 
