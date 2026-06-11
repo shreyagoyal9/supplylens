@@ -11,9 +11,11 @@ router.get("/recent", async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || "50"), 200);
   try {
     if (dbReady()) {
-      const { data } = await supabase
-        .from("sensor_readings").select("*")
-        .order("timestamp", { ascending: false }).limit(limit);
+      const { data } = await supabase.safeQuery(
+        supabase
+          .from("sensor_readings").select("*")
+          .order("timestamp", { ascending: false }).limit(limit)
+      );
       if (data) return res.json({ readings: data });
     }
     const all = Object.values(memReadings).flat()
@@ -30,10 +32,12 @@ router.get("/:shipmentId", async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || "60"), 500);
   try {
     if (dbReady()) {
-      const { data, count } = await supabase
-        .from("sensor_readings").select("*", { count: "exact" })
-        .eq("shipment_id", req.params.shipmentId)
-        .order("timestamp", { ascending: false }).range(0, limit - 1);
+      const { data, count } = await supabase.safeQuery(
+        supabase
+          .from("sensor_readings").select("*", { count: "exact" })
+          .eq("shipment_id", req.params.shipmentId)
+          .order("timestamp", { ascending: false }).range(0, limit - 1)
+      );
       if (data) return res.json({ readings: data.reverse(), total: count });
     }
     const readings = [...(memReadings[req.params.shipmentId] || [])].slice(-limit);

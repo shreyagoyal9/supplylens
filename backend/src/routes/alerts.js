@@ -10,9 +10,11 @@ router.get("/", async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || "20"), 100);
   try {
     if (dbReady()) {
-      const { data } = await supabase
-        .from("alerts").select("*")
-        .order("timestamp", { ascending: false }).limit(limit);
+      const { data } = await supabase.safeQuery(
+        supabase
+          .from("alerts").select("*")
+          .order("timestamp", { ascending: false }).limit(limit)
+      );
       if (data) return res.json({ alerts: data });
     }
     res.json({ alerts: memAlerts.slice(0, limit) });
@@ -39,10 +41,12 @@ router.get("/:shipmentId", async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || "10"), 50);
   try {
     if (dbReady()) {
-      const { data } = await supabase
-        .from("alerts").select("*")
-        .eq("shipment_id", req.params.shipmentId)
-        .order("timestamp", { ascending: false }).limit(limit);
+      const { data } = await supabase.safeQuery(
+        supabase
+          .from("alerts").select("*")
+          .eq("shipment_id", req.params.shipmentId)
+          .order("timestamp", { ascending: false }).limit(limit)
+      );
       if (data) return res.json({ alerts: data });
     }
     const filtered = memAlerts.filter((a) => a.shipment_id === req.params.shipmentId).slice(0, limit);

@@ -12,11 +12,13 @@ router.get("/", async (req, res) => {
       SHIPMENTS.map(async (s) => {
         let latest = memLatest[s.id];
 
-        if (dbReady()) {
-          const { data } = await supabase
-            .from("sensor_readings")
-            .select("*").eq("shipment_id", s.id)
-            .order("timestamp", { ascending: false }).limit(1).single();
+        if (dbReady() && !latest) {
+          const { data } = await supabase.safeQuery(
+            supabase
+              .from("sensor_readings")
+              .select("*").eq("shipment_id", s.id)
+              .order("timestamp", { ascending: false }).limit(1).single()
+          );
           if (data) latest = data;
         }
 
@@ -41,11 +43,13 @@ router.get("/:id", async (req, res) => {
   try {
     let readings = [...(memReadings[req.params.id] || [])];
 
-    if (dbReady()) {
-      const { data } = await supabase
-        .from("sensor_readings").select("*")
-        .eq("shipment_id", req.params.id)
-        .order("timestamp", { ascending: false }).limit(60);
+    if (dbReady() && !readings.length) {
+      const { data } = await supabase.safeQuery(
+        supabase
+          .from("sensor_readings").select("*")
+          .eq("shipment_id", req.params.id)
+          .order("timestamp", { ascending: false }).limit(60)
+      );
       if (data?.length) readings = data.reverse();
     }
 
