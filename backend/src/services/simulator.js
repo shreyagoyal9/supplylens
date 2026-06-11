@@ -117,6 +117,52 @@ async function runCycle() {
         console.error("[supabase]", error.message);
     });
 
+    // ---------------------------------------------------------------------
+    // Rule-based alert — fires directly from the reading, with NO dependency
+    // on the ML service (which sleeps on the free tier). Guarantees the Live
+    // Alerts feed reflects the current breach/anomaly state. Debounced per
+    // shipment: a new alert on a status change, or every ALERT_REPEAT_MS while
+    // the condition persists, so an ongoing breach stays visible without spam.
+    // ML analysis below still adds richer *predictive* alerts when reachable.
+    // ---------------------------------------------------------------------
+    {
+      const st  = state[shipment.id];
+      const now = Date.now();
+      const ALERT_REPEAT_MS = parseInt(process.env.ALERT_REPEAT_MS || "45000");
+
+      if (reading.status !== "NORMAL") {
+        const changed = reading.status !== st.lastAlertStatus;
+        const stale   = !st.lastAlertAt || now - st.lastAlertAt > ALERT_REPEAT_MS;
+
+        if (changed || stale) {
+          st.lastAlertStatus = reading.status;
+          st.lastAlertAt     = now;
+
+          const critical = reading.status === "BREACH";
+          const route    = `${shipment.origin} → ${shipment.dest}`;
+          const alert = {
+            id:            uuidv4(),
+            shipment_id:   shipment.id,
+            shipment_type: shipment.type,
+            timestamp:     reading.timestamp,
+            severity:      critical ? "CRITICAL" : "WARNING",
+            alert_message: critical
+              ? `Temperature ${reading.temperature}°C breached the ${reading.threshold}°C limit on ${route} (${shipment.type}).`
+              : `${reading.anomaly_type.replace("_", " ")} anomaly on ${route} — ${reading.temperature}°C nearing the ${reading.threshold}°C limit.`,
+          };
+
+          addAlert(alert);
+          if (broadcast) broadcast({ type: "ALERT", payload: alert });
+          supabase.from("alerts").insert(alert).then(({ error }) => {
+            if (error && !error.message?.includes("fetch failed"))
+              console.error("[supabase]", error.message);
+          });
+        }
+      } else {
+        st.lastAlertStatus = "NORMAL";
+      }
+    }
+
     // Run ML analysis every 5 anomalous steps to avoid hammering the service
     if (reading.is_anomaly && state[shipment.id].anomalySteps % 5 === 1) {
       const s         = state[shipment.id];
