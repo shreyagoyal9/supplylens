@@ -91,27 +91,92 @@ SupplyLens provides ML-powered anomaly detection with **18-minute average early 
 
 ## 🏗️ Architecture
 
+### System map (file-level)
+
 ```mermaid
-flowchart TD
-    SIM["🚛 IoT Simulator\n──────────────\nFakes sensor data for\n5 shipments every 5s\n\nIn production: replace with\nreal MQTT sensors on trucks"]
+flowchart TB
+    USER(["👤 Browser — recruiter / ops manager"])
 
-    BACKEND["⚙️ Node.js Backend\n──────────────\nExpress REST API\nWebSocket server\nRuns IoT simulator\nCalls ML service"]
+    subgraph FE["Frontend · React 18 — Render Static Site"]
+        direction TB
+        WSHOOK["hooks/useWebSocket.js<br/>auto-reconnect socket"]
+        DASH["components/Dashboard.jsx<br/>layout · tabs · global state"]
+        SCHART["SensorChart.jsx<br/>Recharts + forecast line"]
+        AFEED["AlertFeed.jsx<br/>live alerts + actions"]
+        SDETAIL["pages/ShipmentDetail.jsx<br/>HealthScore · CostImpact · AnomalyExplainer"]
+        EXPORT["ExportButton.jsx<br/>CSV + PDF via jsPDF"]
+        WSHOOK --> DASH
+        DASH --> SCHART
+        DASH --> AFEED
+        DASH --> SDETAIL
+        SDETAIL --> EXPORT
+    end
 
-    ML["🤖 Python ML Service\n──────────────\nIsolation Forest\ndetects anomalies\n\nLSTM forecasts\nnext 20 min temp"]
+    subgraph BE["Backend · Node + Express — Render Web Service"]
+        direction TB
+        IDX["src/index.js<br/>HTTP + WebSocket bootstrap"]
+        SIM["services/simulator.js<br/>5 shipments · 5s tick<br/>injects drift / spike / surge<br/>rule-based alert engine"]
+        WSS["websocket.js<br/>broadcast manager"]
+        RT["routes/<br/>shipments · sensors · alerts"]
+        MLC["services/mlClient.js<br/>axios client → ML service"]
+        SUPA["services/supabase.js<br/>safeQuery timeout + in-memory fallback"]
+        IDX --> SIM
+        IDX --> WSS
+        IDX --> RT
+        SIM --> WSS
+        SIM --> MLC
+        SIM --> SUPA
+        RT --> SUPA
+    end
 
-    DB["🗄️ Supabase\nPostgreSQL\n──────────────\nStores all readings\nand alerts\n(free database)"]
+    subgraph MLS["ML Service · Python + Flask — Render Docker"]
+        direction TB
+        APP["app.py<br/>/api/detect · /api/forecast · /api/analyze"]
+        ISO["models/anomaly_detector.py<br/>Isolation Forest<br/>6 features · StandardScaler pipeline"]
+        FC["models/forecaster.py<br/>LSTM 64→32 or rule-based extrapolation"]
+        GEN["data/generator.py<br/>synthetic faults: drift / spike / flatline / surge"]
+        APP --> ISO
+        APP --> FC
+        GEN -. train time .-> ISO
+        GEN -. train time .-> FC
+    end
 
-    FRONTEND["💻 React Dashboard\n──────────────\nLive charts + alerts\nHealth score\nCost impact in ₹\nRoute map of India"]
+    DB[("PostgreSQL · Supabase<br/>sensor_readings · alerts")]
 
-    USER["👤 User\n(Recruiter / Interviewer\n/ Logistics Manager)"]
+    USER -->|opens app| DASH
+    WSS -->|"WebSocket push wss<br/>SENSOR_READING · ALERT"| WSHOOK
+    DASH -->|"REST GET /api/*"| RT
+    MLC -->|"HTTP POST readings"| APP
+    SUPA -->|"insert / select"| DB
+```
 
-    SIM -->|"generates reading\nevery 5 seconds"| BACKEND
-    BACKEND -->|"sends readings\nfor analysis"| ML
-    ML -->|"returns: is_anomaly?\nanomaly_score\nforecast temps"| BACKEND
-    BACKEND -->|"saves to DB"| DB
-    BACKEND -->|"pushes live data\nvia WebSocket"| FRONTEND
-    FRONTEND -->|"REST API calls\nfor history + alerts"| BACKEND
-    USER -->|"opens browser"| FRONTEND
+### Request lifecycle (what happens to one sensor reading)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant SIM as simulator.js
+    participant WS as websocket.js
+    participant ML as ML service · Flask
+    participant DB as Supabase
+    participant UI as React dashboard
+
+    loop every 5 seconds, per shipment
+        SIM->>SIM: tick — generate temp/humidity,<br/>maybe inject anomaly, compute status
+        SIM->>WS: broadcast SENSOR_READING
+        WS-->>UI: live reading → chart updates
+        SIM->>DB: insert reading (async, non-blocking)
+        alt status is BREACH or WARNING
+            SIM->>WS: rule-based ALERT (no ML needed)
+            WS-->>UI: alert shows in Live Alerts feed
+            SIM->>ML: POST /api/analyze (recent temps)
+            ML-->>SIM: anomaly_score + 20-min forecast
+            SIM->>WS: predictive ALERT
+            WS-->>UI: "will breach 8°C in ~18 min"
+        end
+    end
+
+    Note over UI,DB: On load, UI pulls history via REST<br/>(shipments / sensors / alerts).<br/>If Supabase is paused, routes fall back<br/>to in-memory data — no hang.
 ```
 
 **In plain English — how it works step by step:**
