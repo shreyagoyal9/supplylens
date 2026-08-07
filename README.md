@@ -5,7 +5,7 @@
 **🔴 Live Demo → [supplylens-frontend.onrender.com](https://supplylens-frontend.onrender.com)**
 
 > ⚠️ Free tier — first load may take 30s to wake up. Refresh once if it appears blank.
-
+Deployed on render
 ---
 
 ## 📸 Preview
