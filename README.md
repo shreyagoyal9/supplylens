@@ -1,4 +1,4 @@
-# 🌡️ SupplyLens — Cold Chain Anomaly Detection
+# 🌡️ SupplyLens — Cold Chain Anomaly Detection.
 
 > Real-time IoT sensor dashboard that detects temperature/humidity anomalies in cold-chain shipments **before spoilage occurs** — using Isolation Forest + LSTM, deployed as a Python microservice.
 
